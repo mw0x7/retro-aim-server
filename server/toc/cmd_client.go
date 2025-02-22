@@ -1312,7 +1312,7 @@ func (s OSCARProxy) Signon(ctx context.Context, cmd []byte) (*state.Session, []s
 		return nil, []string{s.runtimeErr(ctx, fmt.Errorf("unable to get session id from payload"))}
 	}
 
-	sess, err := s.AuthService.RegisterBOSSession(ctx, authCookie)
+	sess, err := s.AuthService.RegisterBOSSession(authCookie)
 	if err != nil {
 		return nil, []string{s.runtimeErr(ctx, fmt.Errorf("AuthService.RegisterBOSSession: %w", err))}
 	}
@@ -1338,9 +1338,6 @@ func (s OSCARProxy) Signon(ctx context.Context, cmd []byte) (*state.Session, []s
 // Signout terminates a TOC session. It sends departure notifications to
 // buddies, de-registers buddy list and session.
 func (s OSCARProxy) Signout(ctx context.Context, me *state.Session) {
-	if err := s.BuddyService.BroadcastBuddyDeparted(ctx, me); err != nil {
-		s.Logger.ErrorContext(ctx, "error sending departure notifications", "err", err.Error())
-	}
 	if err := s.BuddyListRegistry.UnregisterBuddyList(me.IdentScreenName()); err != nil {
 		s.Logger.ErrorContext(ctx, "error removing buddy list entry", "err", err.Error())
 	}

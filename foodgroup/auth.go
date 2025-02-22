@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"net"
 	"strconv"
-	"time"
 
 	"github.com/mk6i/retro-aim-server/config"
 	"github.com/mk6i/retro-aim-server/state"
@@ -23,11 +22,14 @@ func NewAuthService(
 	chatSessionRegistry ChatSessionRegistry,
 	userManager UserManager,
 	cookieBaker CookieBaker,
+	messageRelayer MessageRelayer,
 	chatMessageRelayer ChatMessageRelayer,
 	accountManager AccountManager,
+	buddyListRetriever BuddyListRetriever,
 	adminServerSessionRetriever SessionRetriever,
 ) *AuthService {
 	return &AuthService{
+		buddyBroadcaster:    newBuddyNotifier(buddyListRetriever, messageRelayer, adminServerSessionRetriever),
 		chatSessionRegistry: chatSessionRegistry,
 		config:              cfg,
 		cookieBaker:         cookieBaker,
@@ -44,6 +46,7 @@ func NewAuthService(
 // supports both FLAP (AIM v1.0-v3.0) and BUCP (AIM v3.5-v5.9) authentication
 // modes.
 type AuthService struct {
+	buddyBroadcaster            buddyBroadcaster
 	chatMessageRelayer          ChatMessageRelayer
 	chatSessionRegistry         ChatSessionRegistry
 	config                      config.Config
@@ -70,11 +73,7 @@ func (s AuthService) RegisterChatSession(ctx context.Context, authCookie []byte)
 	if err := wire.UnmarshalBE(&c, bytes.NewBuffer(token)); err != nil {
 		return nil, err
 	}
-	sess, err := s.chatSessionRegistry.AddSession(ctx, c.ChatCookie, c.ScreenName)
-	if err != nil {
-		return nil, fmt.Errorf("AddSession: %w", err)
-	}
-	return sess, err
+	return s.chatSessionRegistry.AddSession(c.ChatCookie, c.ScreenName), nil
 }
 
 // bosCookie represents a token containing client metadata passed to the BOS
@@ -85,7 +84,7 @@ type bosCookie struct {
 }
 
 // RegisterBOSSession adds a new session to the session registry.
-func (s AuthService) RegisterBOSSession(ctx context.Context, authCookie []byte) (*state.Session, error) {
+func (s AuthService) RegisterBOSSession(authCookie []byte) (*state.Session, error) {
 	buf, err := s.cookieBaker.Crack(authCookie)
 	if err != nil {
 		return nil, err
@@ -104,14 +103,7 @@ func (s AuthService) RegisterBOSSession(ctx context.Context, authCookie []byte) 
 		return nil, fmt.Errorf("user not found")
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, time.Second*5)
-	defer cancel()
-
-	sess, err := s.sessionManager.AddSession(ctx, u.DisplayScreenName)
-	if err != nil {
-		return nil, fmt.Errorf("AddSession: %w", err)
-	}
-
+	sess := s.sessionManager.AddSession(u.DisplayScreenName)
 	// Set the unconfirmed user info flag if this account is unconfirmed
 	if confirmed, err := s.accountManager.ConfirmStatusByName(sess.IdentScreenName()); err != nil {
 		return nil, fmt.Errorf("error setting unconfirmed user flag: %w", err)
@@ -159,10 +151,13 @@ func (s AuthService) RetrieveBOSSession(authCookie []byte) (*state.Session, erro
 }
 
 // Signout removes this user's session and notifies users who have this user on
-// their buddy list about this user's departure. It's guaranteed that the
-// session is removed from the session pool.
-func (s AuthService) Signout(_ context.Context, sess *state.Session) {
+// their buddy list about this user's departure.
+func (s AuthService) Signout(ctx context.Context, sess *state.Session) error {
+	if err := s.buddyBroadcaster.BroadcastBuddyDeparted(ctx, sess); err != nil {
+		return err
+	}
 	s.sessionManager.RemoveSession(sess)
+	return nil
 }
 
 // SignoutChat removes user from chat room and notifies remaining participants

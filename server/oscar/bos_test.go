@@ -73,10 +73,11 @@ func TestBOSService_handleNewConnection(t *testing.T) {
 
 	authService := newMockAuthService(t)
 	authService.EXPECT().
-		RegisterBOSSession(mock.Anything, []byte("the-cookie")).
+		RegisterBOSSession([]byte("the-cookie")).
 		Return(sess, nil)
 	authService.EXPECT().
-		Signout(mock.Anything, sess)
+		Signout(mock.Anything, sess).
+		Return(nil)
 
 	onlineNotifier := newMockOnlineNotifier(t)
 	onlineNotifier.EXPECT().

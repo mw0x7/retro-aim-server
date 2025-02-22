@@ -103,10 +103,6 @@ func (s BuddyService) DelBuddies(
 	return nil
 }
 
-func (s BuddyService) BroadcastBuddyDeparted(ctx context.Context, sess *state.Session) error {
-	return s.buddyBroadcaster.BroadcastBuddyDeparted(ctx, sess)
-}
-
 func newBuddyNotifier(
 	buddyListRetriever BuddyListRetriever,
 	messageRelayer MessageRelayer,
