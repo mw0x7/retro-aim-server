@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
+	"time"
 
 	"github.com/mk6i/retro-aim-server/wire"
 )
@@ -201,13 +202,14 @@ type InMemoryChatSessionManager struct {
 // session is replaced by a new one.
 func (s *InMemoryChatSessionManager) AddSession(ctx context.Context, chatCookie string, screenName DisplayScreenName) (*Session, error) {
 	s.mapMutex.Lock()
-	defer s.mapMutex.Unlock()
-
 	if _, ok := s.store[chatCookie]; !ok {
 		s.store[chatCookie] = NewInMemorySessionManager(s.logger)
 	}
-
 	sessionManager := s.store[chatCookie]
+	s.mapMutex.Unlock()
+
+	ctx, cancel := context.WithTimeout(ctx, time.Second*5)
+	defer cancel()
 
 	sess, err := sessionManager.AddSession(ctx, screenName)
 	if err != nil {
@@ -215,6 +217,14 @@ func (s *InMemoryChatSessionManager) AddSession(ctx context.Context, chatCookie 
 	}
 
 	sess.SetChatRoomCookie(chatCookie)
+
+	// restore the chat room that may have been deleted by RemoveSession() in
+	// another thread
+	s.mapMutex.Lock()
+	if _, ok := s.store[chatCookie]; !ok {
+		s.store[chatCookie] = sessionManager
+	}
+	s.mapMutex.Unlock()
 
 	return sess, nil
 }
